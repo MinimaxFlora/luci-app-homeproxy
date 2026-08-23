@@ -51,6 +51,27 @@ start_service() {
 	mkdir -p "$RUN_DIR"
 
 	if [ "$outbound_node" != "nil" ]; then
+		# Wait for WAN to be up. In bypass_mainland_china mode the generated
+		# client downloads its geosite/geoip rule-sets via download_detour=main-out
+		# (the proxy node). At boot the WAN / PPPoE session may not be up yet, the
+		# node is unreachable, and sing-box FATALs with "no route to internet",
+		# leaving the LAN pointing at a dead transparent-proxy port.
+		local wan_if wan_ready tries
+		wan_if="$(uci -q get network.wan.ifname)"
+		[ -n "$wan_if" ] || wan_if="wan"
+		wan_ready=0
+		tries=0
+		while [ "$tries" -lt 60 ]; do
+			if ip -4 addr show dev "$wan_if" 2>/dev/null | grep -q 'inet '; then
+				wan_ready=1
+				break
+			fi
+			sleep 5
+			tries=$((tries + 1))
+		done
+		if [ "$wan_ready" = "0" ]; then
+			log "WARN: $wan_if not ready after ~5 minutes, starting anyway"
+		fi
 		# Generate/Validate client config
 		ucode -S "$HP_DIR/scripts/generate_client.uc" 2>>"$LOG_PATH"
 
