@@ -219,7 +219,9 @@ function parse_uri(uri) {
 			let ss_slabel = '';
 			if (length(ss_suri) <= 2) {
 				if (length(ss_suri) === 2)
-					ss_slabel = '#' + urlencode(ss_suri[1]);
+					/* Keep the raw label; parseURL + urldecode will decode it.
+					 * urlencode here would double-encode already URL-encoded labels. */
+					ss_slabel = '#' + ss_suri[1];
 				if (decodeBase64Str(ss_suri[0]))
 					uri[1] = decodeBase64Str(ss_suri[0]) + ss_slabel;
 			}
