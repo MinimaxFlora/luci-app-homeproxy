@@ -3119,3 +3119,66 @@ msgstr "有效端口值"
 #: htdocs/luci-static/resources/homeproxy.js:328
 msgid "valid uuid"
 msgstr "有效 uuid"
+
+msgid "Age Verification"
+msgstr "年龄验证"
+
+msgid "Please verify your age before using HomeProxy. Users under 18 are not permitted to start the service."
+msgstr "使用 HomeProxy 前请先完成年龄验证。未满 18 岁的用户不允许启动服务。"
+
+msgid "Your Age"
+msgstr "您的年龄"
+
+msgid "Enter your age (e.g. 18)"
+msgstr "输入您的年龄（例如 18）"
+
+msgid "Please enter a valid age (1-120)."
+msgstr "请输入有效的年龄（1-120）。"
+
+msgid "Age unverified. HomeProxy service startup will remain disabled."
+msgstr "未验证年龄。HomeProxy 服务将保持禁止启动状态。"
+
+msgid "Age verification complete. Since you are under 18 (%d years old), proxy startup is disabled."
+msgstr "年龄验证完成。由于您未满 18 岁（%d 岁），代理启动功能已被禁用。"
+
+msgid "Age verification passed (%d years old). Welcome to HomeProxy."
+msgstr "年龄验证通过（%d 岁）。欢迎使用 HomeProxy。"
+
+msgid "Age Verification Required: "
+msgstr "需要年龄验证："
+
+msgid "Unverified user. Starting the service is forbidden. Please complete age verification."
+msgstr "未经验证的用户，拒绝启动服务。请先完成年龄验证。"
+
+msgid "Verify now"
+msgstr "立即验证"
+
+msgid "Age Verification Failed: "
+msgstr "年龄验证未通过："
+
+msgid "Current user age is %d (under 18). Starting the service is forbidden."
+msgstr "当前用户年龄为 %d 岁（未满 18 岁），禁止启动服务。"
+
+msgid "Re-verify"
+msgstr "重新验证"
+
+msgid "NOT RUNNING (Age unverified)"
+msgstr "未运行 (未验证年龄)"
+
+msgid "NOT RUNNING (Under 18 - Startup Forbidden)"
+msgstr "未运行 (未满 18 岁 - 禁止启动)"
+
+msgid "User age"
+msgstr "用户年龄"
+
+msgid "Age verification for starting HomeProxy. Must be 18 or above."
+msgstr "启动 HomeProxy 所需的年龄验证。必须满 18 岁。"
+
+msgid "e.g. 18"
+msgstr "例如 18"
+
+msgid "Age verification required: Unverified users cannot start the service."
+msgstr "需要年龄验证：未经验证的用户无法启动服务。"
+
+msgid "Age verification required: Users under 18 cannot start the service."
+msgstr "需要年龄验证：未满 18 岁的用户无法启动服务。"

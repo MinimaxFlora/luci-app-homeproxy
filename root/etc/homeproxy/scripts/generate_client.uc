@@ -31,6 +31,12 @@ const uciinfra = 'infra',
       ucimain = 'config',
       ucicontrol = 'control';
 
+const user_age = uci.get(uciconfig, ucimain, 'user_age');
+if (isEmpty(user_age) || int(user_age) < 18) {
+	warn("Age verification required: unverified or under 18.\n");
+	exit(1);
+}
+
 const ucidnssetting = 'dns',
       ucidnsserver = 'dns_server',
       ucidnsrule = 'dns_rule';

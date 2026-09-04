@@ -3049,3 +3049,66 @@ msgstr ""
 #: htdocs/luci-static/resources/homeproxy.js:328
 msgid "valid uuid"
 msgstr ""
+
+msgid "Age Verification"
+msgstr ""
+
+msgid "Please verify your age before using HomeProxy. Users under 18 are not permitted to start the service."
+msgstr ""
+
+msgid "Your Age"
+msgstr ""
+
+msgid "Enter your age (e.g. 18)"
+msgstr ""
+
+msgid "Please enter a valid age (1-120)."
+msgstr ""
+
+msgid "Age unverified. HomeProxy service startup will remain disabled."
+msgstr ""
+
+msgid "Age verification complete. Since you are under 18 (%d years old), proxy startup is disabled."
+msgstr ""
+
+msgid "Age verification passed (%d years old). Welcome to HomeProxy."
+msgstr ""
+
+msgid "Age Verification Required: "
+msgstr ""
+
+msgid "Unverified user. Starting the service is forbidden. Please complete age verification."
+msgstr ""
+
+msgid "Verify now"
+msgstr ""
+
+msgid "Age Verification Failed: "
+msgstr ""
+
+msgid "Current user age is %d (under 18). Starting the service is forbidden."
+msgstr ""
+
+msgid "Re-verify"
+msgstr ""
+
+msgid "NOT RUNNING (Age unverified)"
+msgstr ""
+
+msgid "NOT RUNNING (Under 18 - Startup Forbidden)"
+msgstr ""
+
+msgid "User age"
+msgstr ""
+
+msgid "Age verification for starting HomeProxy. Must be 18 or above."
+msgstr ""
+
+msgid "e.g. 18"
+msgstr ""
+
+msgid "Age verification required: Unverified users cannot start the service."
+msgstr ""
+
+msgid "Age verification required: Users under 18 cannot start the service."
+msgstr ""

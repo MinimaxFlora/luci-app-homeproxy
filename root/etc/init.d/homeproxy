@@ -30,6 +30,19 @@ log() {
 start_service() {
 	config_load "$CONF"
 
+	local user_age
+	config_get user_age "config" "user_age" ""
+	if [ -z "$user_age" ]; then
+		mkdir -p "$RUN_DIR"
+		log "Error: Age verification required. Unverified users cannot start HomeProxy."
+		return 1
+	fi
+	if ! echo "$user_age" | grep -Eq '^[0-9]+$' || [ "$user_age" -lt 18 ]; then
+		mkdir -p "$RUN_DIR"
+		log "Error: Users under 18 ($user_age) are not allowed to start HomeProxy."
+		return 1
+	fi
+
 	local routing_mode proxy_mode
 	config_get routing_mode "config" "routing_mode" "bypass_mainland_china"
 	config_get proxy_mode "config" "proxy_mode" "redirect_tproxy"

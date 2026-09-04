@@ -56,6 +56,10 @@ function renderStatus(isRunning, version) {
 	let renderHTML;
 	if (isRunning)
 		renderHTML = spanTemp.format('green', _('HomeProxy Server'), version, _('RUNNING'));
+	else if (!hp.isAgeVerified())
+		renderHTML = spanTemp.format('red', _('HomeProxy Server'), version, _('NOT RUNNING (Age unverified)'));
+	else if (!hp.isAgeAllowed())
+		renderHTML = spanTemp.format('red', _('HomeProxy Server'), version, _('NOT RUNNING (Under 18 - Startup Forbidden)'));
 	else
 		renderHTML = spanTemp.format('red', _('HomeProxy Server'), version, _('NOT RUNNING'));
 
@@ -126,6 +130,8 @@ return view.extend({
 		let m, s, o;
 		let features = data[1];
 
+		hp.checkAgeVerification();
+
 		m = new form.Map('homeproxy', _('HomeProxy Server'),
 			_('The modern ImmortalWrt proxy platform for ARM64/AMD64.'));
 
@@ -134,12 +140,15 @@ return view.extend({
 			poll.add(() => {
 				return L.resolveDefault(getServiceStatus()).then((res) => {
 					let view = document.getElementById('service_status');
-					view.innerHTML = renderStatus(res, features.version);
+					if (view)
+						view.innerHTML = renderStatus(res, features.version);
 				});
 			});
 
+			let alertEl = hp.renderAgeAlert();
 			return E('div', { class: 'cbi-section', id: 'status_bar' }, [
-					E('p', { id: 'service_status' }, _('Collecting data...'))
+				alertEl ? alertEl : '',
+				E('p', { id: 'service_status' }, _('Collecting data...'))
 			]);
 		}
 
@@ -147,6 +156,15 @@ return view.extend({
 
 		o = s.option(form.Flag, 'enabled', _('Enable'));
 		o.rmempty = false;
+		o.validate = function(section_id, value) {
+			if (value === '1') {
+				if (!hp.isAgeVerified())
+					return _('Age verification required: Unverified users cannot start the service.');
+				if (!hp.isAgeAllowed())
+					return _('Age verification required: Users under 18 cannot start the service.');
+			}
+			return true;
+		};
 
 		s = m.section(form.GridSection, 'server', _('Server settings'));
 		s.addremove = true;

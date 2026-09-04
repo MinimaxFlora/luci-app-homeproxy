@@ -33,6 +33,7 @@ config homeproxy 'config'
 	option ipv6_support '1'
 	option github_token ''
 	option log_level 'warn'
+	option user_age ''
 
 config homeproxy 'control'
 	option lan_proxy_mode 'disabled'

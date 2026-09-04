@@ -23,6 +23,12 @@ uci.load(uciconfig);
 
 const uciserver = 'server';
 
+const user_age = uci.get(uciconfig, 'config', 'user_age');
+if (isEmpty(user_age) || int(user_age) < 18) {
+	warn("Age verification required: unverified or under 18.\n");
+	exit(1);
+}
+
 const log_level = uci.get(uciconfig, uciserver, 'log_level') || 'warn';
 /* UCI config end */
 

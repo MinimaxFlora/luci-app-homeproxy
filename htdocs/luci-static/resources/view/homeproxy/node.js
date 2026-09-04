@@ -411,6 +411,15 @@ function renderNodeSettings(section, data, features, main_node, routing_mode) {
 			}
 		}
 		o.onclick = function(ev, section_id) {
+			if (!hp.isAgeVerified()) {
+				hp.showAgePromptModal();
+				return;
+			}
+			if (!hp.isAgeAllowed()) {
+				ui.addNotification(null, E('p', _('Age verification required: Users under 18 cannot start the service.')), 'danger');
+				return;
+			}
+
 			uci.set(data[0], 'config', 'main_node', section_id);
 
 			return this.map.save(null, true).then(() => {
@@ -1195,6 +1204,9 @@ return view.extend({
 
 	render(data) {
 		let m, s, o, ss, so;
+
+		hp.checkAgeVerification();
+
 		let main_node = uci.get(data[0], 'config', 'main_node');
 		let routing_mode = uci.get(data[0], 'config', 'routing_mode');
 		let features = data[1];
@@ -1209,6 +1221,14 @@ return view.extend({
 		}
 
 		m = new form.Map('homeproxy', _('Edit nodes'));
+
+		let alertEl = hp.renderAgeAlert();
+		if (alertEl) {
+			s = m.section(form.TypedSection);
+			s.render = function() {
+				return alertEl;
+			};
+		}
 
 		s = m.section(form.NamedSection, 'subscription', 'homeproxy');
 

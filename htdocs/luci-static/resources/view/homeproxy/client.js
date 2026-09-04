@@ -53,6 +53,10 @@ function renderStatus(isRunning, version) {
 	let renderHTML;
 	if (isRunning)
 		renderHTML = spanTemp.format('green', _('HomeProxy'), version, _('RUNNING'));
+	else if (!hp.isAgeVerified())
+		renderHTML = spanTemp.format('red', _('HomeProxy'), version, _('NOT RUNNING (Age unverified)'));
+	else if (!hp.isAgeAllowed())
+		renderHTML = spanTemp.format('red', _('HomeProxy'), version, _('NOT RUNNING (Under 18 - Startup Forbidden)'));
 	else
 		renderHTML = spanTemp.format('red', _('HomeProxy'), version, _('NOT RUNNING'));
 
@@ -84,6 +88,8 @@ return view.extend({
 	render(data) {
 		let m, s, o, ss, so;
 
+		hp.checkAgeVerification();
+
 		let features = data[1],
 		    hosts = data[2]?.hosts;
 
@@ -106,18 +112,27 @@ return view.extend({
 			poll.add(function () {
 				return L.resolveDefault(getServiceStatus()).then((res) => {
 					let view = document.getElementById('service_status');
-					view.innerHTML = renderStatus(res, features.version);
+					if (view)
+						view.innerHTML = renderStatus(res, features.version);
 				});
 			});
 
+			let alertEl = hp.renderAgeAlert();
 			return E('div', { class: 'cbi-section', id: 'status_bar' }, [
-					E('p', { id: 'service_status' }, _('Collecting data...'))
+				alertEl ? alertEl : '',
+				E('p', { id: 'service_status' }, _('Collecting data...'))
 			]);
 		}
 
 		s = m.section(form.NamedSection, 'config', 'homeproxy');
 
 		s.tab('routing', _('Routing Settings'));
+
+		o = s.taboption('routing', form.Value, 'user_age', _('User age'),
+			_('Age verification for starting HomeProxy. Must be 18 or above.'));
+		o.datatype = 'and(uinteger,min(1),max(120))';
+		o.placeholder = _('e.g. 18');
+		o.rmempty = false;
 
 		o = s.taboption('routing', form.ListValue, 'main_node', _('Main node'));
 		o.value('nil', _('Disable'));
@@ -127,6 +142,15 @@ return view.extend({
 		o.default = 'nil';
 		o.depends({'routing_mode': 'custom', '!reverse': true});
 		o.rmempty = false;
+		o.validate = function(section_id, value) {
+			if (value && value !== 'nil') {
+				if (!hp.isAgeVerified())
+					return _('Age verification required: Unverified users cannot start the service.');
+				if (!hp.isAgeAllowed())
+					return _('Age verification required: Users under 18 cannot start the service.');
+			}
+			return true;
+		};
 
 		o = s.taboption('routing', hp.CBIStaticList, 'main_urltest_nodes', _('URLTest nodes'),
 			_('List of nodes to test.'));
@@ -372,6 +396,15 @@ return view.extend({
 		}
 		so.default = 'nil';
 		so.rmempty = false;
+		so.validate = function(section_id, value) {
+			if (value && value !== 'nil') {
+				if (!hp.isAgeVerified())
+					return _('Age verification required: Unverified users cannot start the service.');
+				if (!hp.isAgeAllowed())
+					return _('Age verification required: Users under 18 cannot start the service.');
+			}
+			return true;
+		};
 
 		so = ss.option(form.ListValue, 'default_outbound_dns', _('Default outbound DNS'),
 			_('Default DNS server for resolving domain name in the server address.'));

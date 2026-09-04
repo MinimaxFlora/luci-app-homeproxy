@@ -14,6 +14,8 @@
 'require ui';
 'require view';
 
+'require homeproxy as hp';
+
 /* Thanks to luci-app-aria2 */
 const css = '				\
 #log_textarea {				\
@@ -224,10 +226,26 @@ function getRuntimeLog(o, name, _option_index, section_id, _in_table) {
 }
 
 return view.extend({
+	load() {
+		return Promise.all([
+			uci.load('homeproxy')
+		]);
+	},
+
 	render() {
 		let m, s, o;
 
+		hp.checkAgeVerification();
+
 		m = new form.Map('homeproxy');
+
+		let alertEl = hp.renderAgeAlert();
+		if (alertEl) {
+			s = m.section(form.TypedSection);
+			s.render = function() {
+				return alertEl;
+			};
+		}
 
 		s = m.section(form.NamedSection, 'config', 'homeproxy', _('Connection check'));
 		s.anonymous = true;

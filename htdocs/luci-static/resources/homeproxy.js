@@ -329,5 +329,140 @@ return baseclass.extend({
 		}
 
 		return true;
+	},
+
+	getUserAge() {
+		let age = uci.get('homeproxy', 'config', 'user_age');
+		if (age === null || age === undefined || age === '')
+			return null;
+		let val = parseInt(age, 10);
+		return isNaN(val) ? null : val;
+	},
+
+	isAgeVerified() {
+		return this.getUserAge() !== null;
+	},
+
+	isAgeAllowed() {
+		let age = this.getUserAge();
+		return age !== null && age >= 18;
+	},
+
+	showAgePromptModal(callback) {
+		let currentAge = uci.get('homeproxy', 'config', 'user_age') || '';
+		let inputEl = E('input', {
+			type: 'number',
+			min: '1',
+			max: '120',
+			class: 'cbi-input-text',
+			placeholder: _('Enter your age (e.g. 18)'),
+			value: currentAge,
+			style: 'width: 100%; box-sizing: border-box; font-size: 1.1em; padding: 0.4em;'
+		});
+
+		let errEl = E('div', {
+			style: 'color: #d9534f; margin-top: 8px; font-weight: bold; display: none;'
+		});
+
+		let modalBody = [
+			E('p', { style: 'font-size: 1.05em; line-height: 1.5;' },
+				_('Please verify your age before using HomeProxy. Users under 18 are not permitted to start the service.')),
+			E('div', { class: 'cbi-value', style: 'margin: 15px 0 5px 0;' }, [
+				E('label', { class: 'cbi-value-title', style: 'padding-top: 0.4em;' }, _('Your Age')),
+				E('div', { class: 'cbi-value-field' }, [ inputEl ])
+			]),
+			errEl,
+			E('div', { class: 'right', style: 'margin-top: 20px;' }, [
+				E('button', {
+					class: 'btn',
+					click: () => {
+						ui.hideModal();
+						if (!this.isAgeVerified()) {
+							ui.addNotification(null, E('p', _('Age unverified. HomeProxy service startup will remain disabled.')), 'warning');
+						}
+					}
+				}, [ _('Cancel') ]),
+				' ',
+				E('button', {
+					class: 'btn cbi-button-action',
+					click: ui.createHandlerFn(this, () => {
+						let val = parseInt(inputEl.value, 10);
+						if (isNaN(val) || val < 1 || val > 120) {
+							errEl.textContent = _('Please enter a valid age (1-120).');
+							errEl.style.display = 'block';
+							return;
+						}
+
+						errEl.style.display = 'none';
+						uci.set('homeproxy', 'config', 'user_age', String(val));
+						return uci.save().then(() => {
+							return ui.changes.apply(true);
+						}).then(() => {
+							ui.hideModal();
+							if (val < 18) {
+								ui.addNotification(null, E('p', _('Age verification complete. Since you are under 18 (%d years old), proxy startup is disabled.').format(val)), 'warning');
+							} else {
+								ui.addNotification(null, E('p', _('Age verification passed (%d years old). Welcome to HomeProxy.').format(val)), 'info');
+							}
+							if (typeof callback === 'function') {
+								callback(val);
+							} else {
+								window.location.reload();
+							}
+						}).catch((err) => {
+							errEl.textContent = String(err);
+							errEl.style.display = 'block';
+						});
+					})
+				}, [ _('Confirm') ])
+			])
+		];
+
+		ui.showModal(_('Age Verification'), modalBody);
+		setTimeout(() => { inputEl.focus(); }, 100);
+	},
+
+	checkAgeVerification(callback) {
+		return uci.load('homeproxy').then(() => {
+			if (!this.isAgeVerified()) {
+				this.showAgePromptModal(callback);
+				return false;
+			}
+			return true;
+		});
+	},
+
+	renderAgeAlert() {
+		let age = this.getUserAge();
+		if (age === null) {
+			return E('div', { class: 'alert-message warning', style: 'margin: 10px 0; display: flex; align-items: center; justify-content: space-between;' }, [
+				E('span', {}, [
+					E('strong', {}, _('Age Verification Required: ')),
+					_('Unverified user. Starting the service is forbidden. Please complete age verification.')
+				]),
+				E('button', {
+					class: 'btn cbi-button-action',
+					style: 'margin-left: 15px; white-space: nowrap;',
+					click: ui.createHandlerFn(this, () => {
+						this.showAgePromptModal();
+					})
+				}, [ _('Verify now') ])
+			]);
+		} else if (age < 18) {
+			return E('div', { class: 'alert-message danger', style: 'margin: 10px 0; display: flex; align-items: center; justify-content: space-between;' }, [
+				E('span', {}, [
+					E('strong', {}, _('Age Verification Failed: ')),
+					_('Current user age is %d (under 18). Starting the service is forbidden.').format(age)
+				]),
+				E('button', {
+					class: 'btn cbi-button-action',
+					style: 'margin-left: 15px; white-space: nowrap;',
+					click: ui.createHandlerFn(this, () => {
+						this.showAgePromptModal();
+					})
+				}, [ _('Re-verify') ])
+			]);
+		}
+		return null;
 	}
 });
