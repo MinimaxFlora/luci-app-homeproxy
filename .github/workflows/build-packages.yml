@@ -1,4 +1,4 @@
-name: Build ipk for HomeProxy
+name: Build and Release HomeProxy
 
 on:
   push:
@@ -12,33 +12,25 @@ on:
       - 'Makefile'
       - '.github/**'
       - '!.github/ISSUE_TEMPLATE/**'
-
-  pull_request:
-    branches:
-      - 'master'
-      - 'dev'
-    types:
-      - opened
-      - synchronize
-      - reopened
-    paths:
-      - 'htdocs/**'
-      - 'root/**'
-      - 'Makefile'
-      - '.github/**'
-      - '!.github/ISSUE_TEMPLATE/**'
-
-  release:
-    types:
-      - published
+  workflow_dispatch: # 添加手动触发选项
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # 必须赋予写入权限，以便自动创建 tag 和 release
 
     steps:
       - name: Checkout source tree
         uses: actions/checkout@v6
+
+      - name: Extract version from Makefile
+        id: version
+        run: |
+          # 自动从 Makefile 提取 PKG_VERSION 的值 (例如 1.0.1)
+          VERSION=$(grep -oP '^PKG_VERSION:=\K.*' Makefile | tr -d '[:space:]')
+          echo "TAG_NAME=v$VERSION" >> $GITHUB_ENV
+          echo "Extracted tag: v$VERSION"
 
       - name: Checkout apk
         uses: actions/checkout@v6
@@ -91,15 +83,15 @@ jobs:
       - name: Build ipk file
         run: |
           pushd .github
-          fakeroot bash build-ipk.sh apk "${{ github.event_name }}"
-          fakeroot bash build-ipk.sh ipk "${{ github.event_name }}"
+          # 强制传入 "release"，让打包脚本读取 Makefile 内的版本号，而不是使用 snapshot
+          fakeroot bash build-ipk.sh apk "release"
+          fakeroot bash build-ipk.sh ipk "release"
           echo "APK_ASSET_NAME=$(ls *.apk)" >> $GITHUB_ENV
           echo "IPK_ASSET_NAME=$(ls *.ipk)" >> $GITHUB_ENV
           popd
 
       - name: Publishing APK files to GitHub Artifacts
         uses: actions/upload-artifact@v7
-        if: github.event_name != 'release'
         with:
           name: ${{ env.APK_ASSET_NAME }}
           path: .github/${{ env.APK_ASSET_NAME }}
@@ -107,17 +99,18 @@ jobs:
 
       - name: Publishing IPK files to GitHub Artifacts
         uses: actions/upload-artifact@v7
-        if: github.event_name != 'release'
         with:
           name: ${{ env.IPK_ASSET_NAME }}
           path: .github/${{ env.IPK_ASSET_NAME }}
           archive: false
 
       - name: Publishing to GitHub Releases
-        uses: svenstaro/upload-release-action@v2
-        if: github.event_name == 'release'
+        uses: svenstaro/upload-release-action@2.11.5
+        if: github.ref == 'refs/heads/master' # 仅在 master 分支推送时发布 Release
         with:
-          repo_token: ${{ github.token }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: .github/luci-app-homeproxy_*.*
           file_glob: true
-          tag: ${{ github.ref }}
+          tag: ${{ env.TAG_NAME }}
+          release_name: Release ${{ env.TAG_NAME }}
+          overwrite: true # 如果 tag 已存在，则覆盖原有的 release 附件
