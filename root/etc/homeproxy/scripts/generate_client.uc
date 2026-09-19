@@ -14,7 +14,7 @@ import { cursor } from 'uci';
 
 import {
 	isEmpty, parseURL, strToBool, strToInt, strToTime,
-	removeBlankAttrs, validation, HP_DIR, RUN_DIR
+	removeBlankAttrs, validation, filterCheck, HP_DIR, RUN_DIR
 } from 'homeproxy';
 
 const ubus = connect();
@@ -29,7 +29,8 @@ uci.load(uciconfig);
 
 const uciinfra = 'infra',
       ucimain = 'config',
-      ucicontrol = 'control';
+      ucicontrol = 'control',
+      uciexp = 'experimental';
 
 const ucidnssetting = 'dns',
       ucidnsserver = 'dns_server',
@@ -107,6 +108,13 @@ const proxy_mode = uci.get(uciconfig, ucimain, 'proxy_mode') || 'redirect_tproxy
       default_interface = uci.get(uciconfig, ucicontrol, 'bind_interface');
 
 const mixed_port = uci.get(uciconfig, uciinfra, 'mixed_port') || '5330';
+
+const clash_api_enabled = uci.get(uciconfig, uciexp, 'clash_api_enabled'),
+      nginx_support = uci.get(uciconfig, uciexp, 'nginx_support'),
+      clash_api_log_level = uci.get(uciconfig, uciexp, 'clash_api_log_level') || 'warn',
+      dashboard_repo = uci.get(uciconfig, uciexp, 'dashboard_repo'),
+      clash_api_port = uci.get(uciconfig, uciexp, 'clash_api_port') || '9090',
+      clash_api_secret = uci.get(uciconfig, uciexp, 'clash_api_secret') || trim(readfile('/proc/sys/kernel/random/uuid'));
 
 let self_mark, redirect_port, tproxy_port, tun_name,
     tun_addr4, tun_addr6, tun_mtu, tcpip_stack,
@@ -213,9 +221,71 @@ function generate_endpoint(node) {
 	return endpoint;
 }
 
+let checkedout_nodes = [],
+    nodes_tobe_checkedout = [];
+
+function filter_node(node, filter_nodes, filter_keywords) {
+	if (isEmpty(filter_nodes) || isEmpty(filter_keywords))
+		return false;
+
+	return filterCheck(node.label, filter_nodes, filter_keywords);
+}
+
 function generate_outbound(node) {
 	if (type(node) !== 'object' || isEmpty(node))
 		return null;
+
+	push(checkedout_nodes, node['.name']);
+
+	/* Selector / URLTest */
+	if (node.type in ['selector', 'urltest']) {
+		let outbounds = [];
+
+		/* Nodes belonging to the selected subscription groups */
+		for (let grouphash in node.group) {
+			if (isEmpty(grouphash))
+				continue;
+
+			uci.foreach(uciconfig, ucinode, (cfg) => {
+				if (cfg.grouphash === grouphash &&
+				    !filter_node(cfg, node.filter_nodes, node.filter_keywords)) {
+					push(outbounds, 'cfg-' + cfg['.name'] + '-out');
+					if (!(cfg['.name'] in nodes_tobe_checkedout) && cfg['.name'] !== node['.name'])
+						push(nodes_tobe_checkedout, cfg['.name']);
+				}
+			});
+		}
+
+		/* Explicitly ordered outbounds */
+		for (let order in node.order) {
+			const member = uci.get_all(uciconfig, order) || {};
+			if (filter_node(member, node.filter_nodes, node.filter_keywords))
+				continue;
+
+			push(outbounds, (order in ['direct-out', 'block-out']) ? order : 'cfg-' + order + '-out');
+			if (!(order in ['direct-out', 'block-out']) && !(order in nodes_tobe_checkedout) && order !== node['.name'])
+				push(nodes_tobe_checkedout, order);
+		}
+
+		if (length(outbounds) === 0)
+			push(outbounds, 'direct-out', 'block-out');
+
+		return {
+			type: node.type,
+			tag: 'cfg-' + node['.name'] + '-out',
+			outbounds: outbounds,
+			/* Selector */
+			default: isEmpty(node.default_selected) ? null :
+				((node.default_selected in ['direct-out', 'block-out']) ? node.default_selected :
+					'cfg-' + node.default_selected + '-out'),
+			/* URLTest */
+			url: node.test_url,
+			interval: node.interval,
+			tolerance: strToInt(node.tolerance),
+			idle_timeout: node.idle_timeout,
+			interrupt_exist_connections: strToBool(node.interrupt_exist_connections)
+		};
+	}
 
 	const outbound = {
 		type: node.type,
@@ -401,7 +471,7 @@ const config = {};
 /* Log */
 config.log = {
 	disabled: false,
-	level: log_level,
+	level: (clash_api_enabled === '1') ? clash_api_log_level : log_level,
 	output: RUN_DIR + '/sing-box-c.log',
 	timestamp: true
 };
@@ -563,6 +633,7 @@ if (!isEmpty(main_node)) {
 			process_path: cfg.process_path,
 			process_path_regex: cfg.process_path_regex,
 			user: cfg.user,
+			clash_mode: cfg.clash_mode,
 			rule_set: get_ruleset(cfg.rule_set),
 			rule_set_ip_cidr_match_source: strToBool(cfg.rule_set_ip_cidr_match_source),
 			rule_set_ip_cidr_accept_empty: strToBool(cfg.rule_set_ip_cidr_accept_empty),
@@ -689,6 +760,7 @@ if (!isEmpty(main_node)) {
 		if (main_node_cfg.type === 'wireguard') {
 			push(config.endpoints, generate_endpoint(main_node_cfg));
 			config.endpoints[length(config.endpoints)-1].tag = 'main-out';
+			push(checkedout_nodes, main_node);
 		} else {
 			push(config.outbounds, generate_outbound(main_node_cfg));
 			config.outbounds[length(config.outbounds)-1].tag = 'main-out';
@@ -714,6 +786,7 @@ if (!isEmpty(main_node)) {
 		if (main_udp_node_cfg.type === 'wireguard') {
 			push(config.endpoints, generate_endpoint(main_udp_node_cfg));
 			config.endpoints[length(config.endpoints)-1].tag = 'main-udp-out';
+			push(checkedout_nodes, main_udp_node);
 		} else {
 			push(config.outbounds, generate_outbound(main_udp_node_cfg));
 			config.outbounds[length(config.outbounds)-1].tag = 'main-udp-out';
@@ -725,6 +798,7 @@ if (!isEmpty(main_node)) {
 		if (urltest_node.type === 'wireguard') {
 			push(config.endpoints, generate_endpoint(urltest_node));
 			config.endpoints[length(config.endpoints)-1].tag = 'cfg-' + i + '-out';
+			push(checkedout_nodes, i);
 		} else {
 			push(config.outbounds, generate_outbound(urltest_node));
 			config.outbounds[length(config.outbounds)-1].tag = 'cfg-' + i + '-out';
@@ -761,15 +835,18 @@ if (!isEmpty(main_node)) {
 						server: get_resolver(cfg.domain_resolver),
 						strategy: cfg.domain_strategy
 					};
+				push(checkedout_nodes, cfg.node);
 			} else {
 				push(config.outbounds, generate_outbound(outbound));
-				config.outbounds[length(config.outbounds)-1].bind_interface = cfg.bind_interface;
-				config.outbounds[length(config.outbounds)-1].detour = get_outbound(cfg.outbound);
-				if (cfg.domain_resolver)
-					config.outbounds[length(config.outbounds)-1].domain_resolver = {
-						server: get_resolver(cfg.domain_resolver),
-						strategy: cfg.domain_strategy
-					};
+				if (!(config.outbounds[length(config.outbounds)-1].type in ['selector', 'urltest'])) {
+					config.outbounds[length(config.outbounds)-1].bind_interface = cfg.bind_interface;
+					config.outbounds[length(config.outbounds)-1].detour = get_outbound(cfg.outbound);
+					if (cfg.domain_resolver)
+						config.outbounds[length(config.outbounds)-1].domain_resolver = {
+							server: get_resolver(cfg.domain_resolver),
+							strategy: cfg.domain_strategy
+						};
+				}
 			}
 			push(routing_nodes, cfg.node);
 		}
@@ -781,6 +858,28 @@ if (!isEmpty(main_node)) {
 			push(config.endpoints, generate_endpoint(urltest_node));
 		else
 			push(config.outbounds, generate_outbound(urltest_node));
+	}
+}
+
+/* Second level outbounds referenced by selector / urltest nodes */
+while (length(nodes_tobe_checkedout) > 0) {
+	const oldarr = uniq(nodes_tobe_checkedout);
+
+	nodes_tobe_checkedout = [];
+	for (let k in oldarr) {
+		if (k in checkedout_nodes)
+			continue;
+
+		const member = uci.get_all(uciconfig, k) || {};
+		if (isEmpty(member))
+			continue;
+
+		if (member.type === 'wireguard')
+			push(config.endpoints, generate_endpoint(member));
+		else
+			push(config.outbounds, generate_outbound(member));
+
+		push(checkedout_nodes, k);
 	}
 }
 
@@ -922,6 +1021,7 @@ if (!isEmpty(main_node)) {
 			process_path: cfg.process_path,
 			process_path_regex: cfg.process_path_regex,
 			user: cfg.user,
+			clash_mode: cfg.clash_mode,
 			rule_set: get_ruleset(cfg.rule_set),
 			rule_set_ip_cidr_match_source: strToBool(cfg.rule_set_ip_cidr_match_source),
 			invert: strToBool(cfg.invert),
@@ -967,6 +1067,19 @@ if (routing_mode in ['bypass_mainland_china', 'custom']) {
 			store_rdrc: strToBool(cache_file_store_rdrc),
 			rdrc_timeout: strToTime(cache_file_rdrc_timeout),
 		}
+	};
+
+	/* Clash API */
+	if (dashboard_repo) {
+		system('rm -rf ' + RUN_DIR + '/ui');
+		const dashpkg = HP_DIR + '/resources/' + replace(dashboard_repo, '/', '_') + '.zip';
+		system('unzip -qo ' + dashpkg + ' -d ' + RUN_DIR + '/');
+		system('mv ' + RUN_DIR + '/*-gh-pages/ ' + RUN_DIR + '/ui/');
+	}
+	config.experimental.clash_api = {
+		external_controller: (clash_api_enabled === '1') ? ((nginx_support === '1') ? '[::1]:' : '[::]:') + clash_api_port : null,
+		external_ui: dashboard_repo ? RUN_DIR + '/ui' : null,
+		secret: clash_api_secret
 	};
 }
 /* Experimental end */

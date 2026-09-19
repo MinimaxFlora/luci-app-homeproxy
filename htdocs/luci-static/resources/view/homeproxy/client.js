@@ -38,6 +38,80 @@ const callWriteDomainList = rpc.declare({
 	expect: { '': {} }
 });
 
+const callGetAPISecret = rpc.declare({
+	object: 'luci.homeproxy',
+	method: 'clash_api_get_secret',
+	params: [],
+	expect: { '': {} }
+});
+
+const callResVersion = rpc.declare({
+	object: 'luci.homeproxy',
+	method: 'resources_get_version',
+	params: ['type', 'repo'],
+	expect: { '': {} }
+});
+
+const ruleset_docdata = 'base64,' + 'cmxzdHBsYWNlaG9sZGVy';
+
+function parseRulesetLink(uri) {
+	let config,
+	    filefmt = new RegExp(/^(json|srs)$/),
+	    unuciname = new RegExp(/[^a-zA-Z0-9_]+/, 'g');
+
+	uri = uri.split('://');
+	if (uri[0] && uri[1]) {
+		switch (uri[0]) {
+		case 'http':
+		case 'https':
+			var url = new URL('http://' + uri[1]);
+			var file = url.searchParams.get('file');
+			var rawquery = url.searchParams.get('rawquery');
+			var name = decodeURIComponent(url.pathname.split('/').pop())
+				.replace(/[\s\.-]/g, '_').replace(unuciname, '');
+
+			if (filefmt.test(file)) {
+				var fullpath = (url.username ? url.username + '@' : '') + url.host + url.pathname + (rawquery ? '?' + decodeURIComponent(rawquery) : '');
+				config = {
+					label: url.hash ? decodeURIComponent(url.hash.slice(1)) : name ? name : null,
+					type: 'remote',
+					format: file.match(/^json$/) ? 'source' : file.match(/^srs$/) ? 'binary' : 'unknown',
+					url: String.format('%s://%s', uri[0], fullpath),
+					href: String.format('http://%s', fullpath)
+				};
+			}
+
+			break;
+		case 'file':
+			var url = new URL('file://' + uri[1]);
+			var file = url.searchParams.get('file');
+			var name = decodeURIComponent(url.pathname.split('/').pop())
+				.replace(/[\s\.-]/g, '_').replace(unuciname, '');
+
+			if (filefmt.test(file)) {
+				config = {
+					label: url.hash ? decodeURIComponent(url.hash.slice(1)) : name ? name : null,
+					type: 'local',
+					format: file.match(/^json$/) ? 'source' : file.match(/^srs$/) ? 'binary' : 'unknown',
+					path: url.pathname,
+					href: String.format('file://%s%s', url.host, url.pathname)
+				};
+			}
+
+			break;
+		}
+	}
+
+	if (config) {
+		if (!config.type || !config.href)
+			return null;
+		else if (!config.label)
+			config.label = hp.calcStringMD5(config.href);
+	}
+
+	return config;
+}
+
 function getServiceStatus() {
 	return L.resolveDefault(callServiceList('homeproxy'), {}).then((res) => {
 		let isRunning = false;
@@ -48,12 +122,37 @@ function getServiceStatus() {
 	});
 }
 
-function renderStatus(isRunning, version) {
+function renderStatus(isRunning, version, args) {
 	let spanTemp = '<em><span style="color:%s"><strong>%s (sing-box v%s) %s</strong></span></em>';
 	let renderHTML;
-	if (isRunning)
-		renderHTML = spanTemp.format('green', _('HomeProxy'), version, _('RUNNING'));
-	else
+	if (isRunning) {
+		let button;
+		if (args.dashboard_repo) {
+			let nginx = args.features.hp_has_nginx && args.nginx_support === '1';
+			let urlParams;
+			if (args.set_dash_backend) {
+				switch (args.dashboard_repo) {
+				case 'metacubex/metacubexd':
+					urlParams = String.format('#/setup?hostname=%s&port=%s&secret=%s', window.location.hostname, args.api_port, args.api_secret);
+					break;
+				case 'metacubex/yacd-meta':
+					urlParams = String.format('?hostname=%s&port=%s&secret=%s', window.location.hostname, args.api_port, args.api_secret);
+					break;
+				case 'metacubex/razord-meta':
+					urlParams = String.format('?host=%s&port=%s&secret=%s', window.location.hostname, args.api_port, args.api_secret);
+					break;
+				default:
+					break;
+				}
+			}
+
+			button = String.format('&#160;<a class="btn cbi-button-apply" href="%s" target="_blank" rel="noreferrer noopener">%s</a>',
+				(nginx ? 'https:' : 'http:') + '//' + window.location.hostname +
+				(nginx ? '/homeproxy' : ':' + args.api_port) + '/ui/' + (urlParams || ''),
+				_('Open Clash Dashboard'));
+		}
+		renderHTML = spanTemp.format('green', _('HomeProxy'), version, _('RUNNING')) + (button || '');
+	} else
 		renderHTML = spanTemp.format('red', _('HomeProxy'), version, _('NOT RUNNING'));
 
 	return renderHTML;
@@ -77,7 +176,8 @@ return view.extend({
 		return Promise.all([
 			uci.load('homeproxy'),
 			hp.getBuiltinFeatures(),
-			network.getHostHints()
+			network.getHostHints(),
+			L.resolveDefault(callGetAPISecret(), {})
 		]);
 	},
 
@@ -85,7 +185,12 @@ return view.extend({
 		let m, s, o, ss, so;
 
 		let features = data[1],
-		    hosts = data[2]?.hosts;
+		    hosts = data[2]?.hosts,
+		    api_port = uci.get(data[0], 'experimental', 'clash_api_port'),
+		    api_secret = data[3]?.secret || '',
+		    nginx_support = uci.get(data[0], 'experimental', 'nginx_support') || '0',
+		    dashboard_repo = uci.get(data[0], 'experimental', 'dashboard_repo'),
+		    set_dash_backend = uci.get(data[0], 'experimental', 'set_dash_backend');
 
 		/* Cache all configured proxy nodes, they will be called multiple times */
 		let proxy_nodes = {};
@@ -106,7 +211,7 @@ return view.extend({
 			poll.add(function () {
 				return L.resolveDefault(getServiceStatus()).then((res) => {
 					let view = document.getElementById('service_status');
-					view.innerHTML = renderStatus(res, features.version);
+					view.innerHTML = renderStatus(res, features.version, { features, nginx_support, dashboard_repo, set_dash_backend, api_port, api_secret });
 				});
 			});
 
@@ -643,6 +748,14 @@ return view.extend({
 			_('Match user name.'));
 		so.modalonly = true;
 
+		so = ss.taboption('field_other', form.ListValue, 'clash_mode', _('Clash mode'),
+			_('Match clash mode.'));
+		so.value('', _('None'));
+		so.value('global', _('Global'));
+		so.value('rule', _('Rule'));
+		so.value('direct', _('Direct'));
+		so.modalonly = true;
+
 		so = ss.taboption('field_other', hp.CBIStaticList, 'rule_set', _('Rule set'),
 			_('Match rule set.'));
 		so.load = function(section_id) {
@@ -1116,6 +1229,14 @@ return view.extend({
 			_('Match user name.'));
 		so.modalonly = true;
 
+		so = ss.taboption('field_other', form.ListValue, 'clash_mode', _('Clash mode'),
+			_('Match clash mode.'));
+		so.value('', _('None'));
+		so.value('global', _('Global'));
+		so.value('rule', _('Rule'));
+		so.value('direct', _('Direct'));
+		so.modalonly = true;
+
 		so = ss.taboption('field_other', hp.CBIStaticList, 'rule_set', _('Rule set'),
 			_('Match rule set.'));
 		so.load = function(section_id) {
@@ -1319,7 +1440,95 @@ return view.extend({
 		ss.nodescriptions = true;
 		ss.modaltitle = L.bind(hp.loadModalTitle, this, _('Rule set'), _('Add a rule set'), data[0]);
 		ss.sectiontitle = L.bind(hp.loadDefaultLabel, this, data[0]);
-		ss.renderSectionAdd = L.bind(hp.renderSectionAdd, this, ss);
+
+		/* Import rule-set links start */
+		ss.handleLinkImport = function() {
+			let textarea = new ui.Textarea('', {
+				'placeholder': 'http(s)://github.com/sagernet/sing-geoip/raw/rule-set/geoip-hk.srs?file=srs&rawquery=good%3Djob#GeoIP-HK\n' +
+							   'file:///etc/homeproxy/ruleset/example.json?file=json#Example%20file\n'
+			});
+			ui.showModal(_('Import rule-set links'), [
+				E('p', _('Supports rule-set links of type: <code>local, remote</code> and format: <code>source, binary</code>.</br>') +
+							_('Please refer to <a href="%s" target="_blank">%s</a> for link format standards.')
+								.format('data:text/html;' + ruleset_docdata, _('Ruleset-URI-Scheme'))),
+				textarea.render(),
+				E('div', { class: 'right' }, [
+					E('button', {
+						class: 'btn',
+						click: ui.hideModal
+					}, [ _('Cancel') ]),
+					'',
+					E('button', {
+						class: 'btn cbi-button-action',
+						click: ui.createHandlerFn(this, function() {
+							let input_links = textarea.getValue().trim().split('\n');
+							if (input_links && input_links[0]) {
+								/* Remove duplicate lines */
+								input_links = input_links.reduce((pre, cur) =>
+									(!pre.includes(cur) && pre.push(cur), pre), []);
+
+								let imported_ruleset = 0;
+								input_links.forEach((l) => {
+									let config = parseRulesetLink(l);
+									if (config) {
+										let hrefHash = hp.calcStringMD5(config.href);
+										config.href = null;
+										let sid = uci.add(data[0], 'ruleset', hrefHash);
+										Object.keys(config).forEach((k) => {
+											uci.set(data[0], sid, k, config[k]);
+										});
+										imported_ruleset++;
+									}
+								});
+
+								if (imported_ruleset === 0)
+									ui.addNotification(null, E('p', _('No valid rule-set link found.')));
+								else
+									ui.addNotification(null, E('p', _('Successfully imported %s rule-set of total %s.').format(
+										imported_ruleset, input_links.length)));
+
+								return uci.save()
+									.then(L.bind(this.map.load, this.map))
+									.then(L.bind(this.map.reset, this.map))
+									.then(L.ui.hideModal)
+									.catch(function() {});
+							} else {
+								return ui.hideModal();
+							}
+						})
+					}, [ _('Import') ])
+				])
+			])
+		}
+		ss.renderSectionAdd = function(extra_class) {
+			let el = form.GridSection.prototype.renderSectionAdd.apply(this, arguments),
+			    nameEl = el.querySelector('.cbi-section-create-name');
+
+			ui.addValidator(nameEl, 'uciname', true, (v) => {
+				let button = el.querySelector('.cbi-section-create > .cbi-button-add');
+				let uciconfig = this.uciconfig || this.map.config;
+
+				if (!v) {
+					button.disabled = true;
+					return true;
+				} else if (uci.get(uciconfig, v)) {
+					button.disabled = true;
+					return _('Expecting: %s').format(_('unique UCI identifier'));
+				} else {
+					button.disabled = null;
+					return true;
+				}
+			}, 'blur', 'keyup');
+
+			el.appendChild(E('button', {
+				'class': 'cbi-button cbi-button-add',
+				'title': _('Import rule-set links'),
+				'click': ui.createHandlerFn(this, 'handleLinkImport')
+			}, [ _('Import rule-set links') ]));
+
+			return el;
+		}
+		/* Import rule-set links end */
 
 		so = ss.option(form.Value, 'label', _('Label'));
 		so.load = L.bind(hp.loadDefaultLabel, this, data[0]);
@@ -1394,6 +1603,83 @@ return view.extend({
 		so.placeholder = '1d';
 		so.depends('type', 'remote');
 		/* Rule set settings end */
+
+		/* Clash API settings start */
+		s.tab('clash', _('Clash API settings'));
+		o = s.taboption('clash', form.SectionValue, '_clash', form.NamedSection, 'experimental');
+		o.depends('routing_mode', 'custom');
+
+		ss = o.subsection;
+		so = ss.option(form.Flag, 'clash_api_enabled', _('Enable Clash API'));
+		so.default = so.disabled;
+
+		so = ss.option(form.Flag, 'nginx_support', _('Nginx Support'));
+		so.rmempty = true;
+		if (!features.hp_has_nginx) {
+			so.description = _('To enable this feature you need install <b>luci-nginx</b> and <b>luci-ssl-nginx</b><br/> first');
+			so.readonly = true;
+		}
+		so.write = function(section_id, value) {
+			return uci.set(data[0], section_id, 'nginx_support', features.hp_has_nginx ? value : null);
+		}
+
+		so = ss.option(form.ListValue, 'clash_api_log_level', _('Log level'));
+		so.value('trace', 'Trace');
+		so.value('debug', 'Debug');
+		so.value('info', 'Info');
+		so.value('warn', 'Warning');
+		so.value('error', 'Error');
+		so.value('fatal', 'Fatal');
+		so.value('panic', 'Panic');
+		so.default = 'warn';
+
+		so = ss.option(form.ListValue, 'dashboard_repo', _('Select Clash Dashboard'),
+			_('If the selected dashboard is <code>') + _('Not Installed') + _('</code>.<br/> you will need to check update via <code>') +
+			_('Service Status') + _('</code> » <code>') + _('Clash dashboard version') + _('</code>.'));
+		so.load = function(section_id) {
+			delete this.keylist;
+			delete this.vallist;
+
+			let repos = [
+				['metacubex/metacubexd', _('metacubexd')],
+				['metacubex/yacd-meta', _('yacd-meta')],
+				['metacubex/razord-meta', _('razord-meta')]
+			];
+
+			this.value('', _('Use Online Dashboard'));
+			repos.forEach((repo) => {
+				callResVersion('clash_dashboard', repo[0]).then((res) => {
+					this.value(repo[0], repo[1] + ' - ' + (res.error ? _('Not Installed') : _('Installed')));
+				});
+			});
+
+			return this.super('load', section_id);
+		}
+		so.default = '';
+		if (api_secret) {
+			if (features.hp_has_nginx && nginx_support === '1') {
+				so.description = _('The current API URL is <code>%s</code>')
+					.format('https://' + window.location.hostname + '/homeproxy/');
+			} else {
+				so.description = _('The current API URL is <code>%s</code>')
+					.format('http://' + window.location.hostname + ':' + api_port);
+			}
+		}
+
+		so = ss.option(form.Flag, 'set_dash_backend', _('Auto set backend'),
+			_('Auto set backend address for dashboard.'));
+		so.default = so.disabled;
+
+		so = ss.option(form.Value, 'clash_api_port', _('Port'));
+		so.datatype = "and(port, min(1))";
+		so.default = '9090';
+		so.rmempty = false;
+
+		so = ss.option(form.Value, 'clash_api_secret', _('Secret'), _('Automatically generated if empty'));
+		so.password = true;
+		if (api_secret)
+			so.description = _('The current Secret is <code>' + api_secret + '</code>');
+		/* Clash API settings end */
 
 		/* ACL settings start */
 		s.tab('control', _('Access Control'));

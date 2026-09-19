@@ -12,7 +12,8 @@ LUCI_DEPENDS:= \
 	+sing-box \
 	+firewall4 \
 	+kmod-nft-tproxy \
-	+ucode-mod-digest
+	+ucode-mod-digest \
+	+unzip
 
 PKG_NAME:=luci-app-homeproxy
 
@@ -22,6 +23,8 @@ define Package/luci-app-homeproxy/conffiles
 /etc/homeproxy/ruleset/
 /etc/homeproxy/resources/direct_list.txt
 /etc/homeproxy/resources/proxy_list.txt
+/etc/homeproxy/resources/clash_dashboard.ver
+/etc/homeproxy/resources/*.zip
 endef
 
 include $(TOPDIR)/feeds/luci/luci.mk

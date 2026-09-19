@@ -60,27 +60,27 @@ function getConnStat(o, site) {
 	]);
 }
 
-function getResVersion(o, type) {
+function getResVersion(o, type, repo) {
 	const callResVersion = rpc.declare({
 		object: 'luci.homeproxy',
 		method: 'resources_get_version',
-		params: ['type'],
+		params: ['type', 'repo'],
 		expect: { '': {} }
 	});
 
 	const callResUpdate = rpc.declare({
 		object: 'luci.homeproxy',
 		method: 'resources_update',
-		params: ['type'],
+		params: ['type', 'repo'],
 		expect: { '': {} }
 	});
 
-	return L.resolveDefault(callResVersion(type), {}).then((res) => {
+	return L.resolveDefault(callResVersion(type, repo), {}).then((res) => {
 		let spanTemp = E('div', { 'style': 'cbi-value-field' }, [
 			E('button', {
 				'class': 'btn cbi-button cbi-button-action',
 				'click': ui.createHandlerFn(this, () => {
-					return L.resolveDefault(callResUpdate(type), {}).then((res) => {
+					return L.resolveDefault(callResUpdate(type, repo), {}).then((res) => {
 						switch (res.status) {
 						case 0:
 							o.description = _('Successfully updated.');
@@ -224,8 +224,16 @@ function getRuntimeLog(o, name, _option_index, section_id, _in_table) {
 }
 
 return view.extend({
-	render() {
+	load() {
+		return Promise.all([
+			uci.load('homeproxy')
+		]);
+	},
+
+	render(data) {
 		let m, s, o;
+
+		let dashboard_repo = uci.get(data[0], 'experimental', 'dashboard_repo') || '';
 
 		m = new form.Map('homeproxy');
 
@@ -240,6 +248,12 @@ return view.extend({
 
 		s = m.section(form.NamedSection, 'config', 'homeproxy', _('Resources management'));
 		s.anonymous = true;
+
+		if (dashboard_repo !== '') {
+			o = s.option(form.DummyValue, '_clash_dashboard_version', _('Clash dashboard version'));
+			o.cfgvalue = L.bind(getResVersion, this, o, 'clash_dashboard', dashboard_repo);
+			o.rawhtml = true;
+		}
 
 		o = s.option(form.DummyValue, '_china_ip4_version', _('China IPv4 list version'));
 		o.cfgvalue = L.bind(getResVersion, this, o, 'china_ip4');

@@ -14,6 +14,7 @@ PROG="/usr/bin/sing-box"
 HP_DIR="/etc/homeproxy"
 RUN_DIR="/var/run/homeproxy"
 LOG_PATH="$RUN_DIR/homeproxy.log"
+APILOCATION_PATH="/etc/nginx/conf.d/homeproxy.locations"
 
 # we don't know which is the default server, just take the first one
 DNSMASQ_UCI_CONFIG="$(uci -q show "dhcp.@dnsmasq[0]" | awk 'NR==1 {split($0, conf, /[.=]/); print conf[2]}')"
@@ -70,6 +71,16 @@ start_service() {
 			sed -i "/#${CONF}_autosetup/d" "/etc/crontabs/root" 2>"/dev/null"
 			echo -e "0 $auto_update_time * * * $HP_DIR/scripts/update_crond.sh #${CONF}_autosetup" >> "/etc/crontabs/root"
 			/etc/init.d/cron restart
+		fi
+
+		# Clash API uses Nginx reverse proxy
+		local clash_api_enabled clash_api_port nginx_support
+		config_get_bool clash_api_enabled "experimental" "clash_api_enabled" "0"
+		config_get_bool nginx_support "experimental" "nginx_support" "0"
+		if [ "$clash_api_enabled" = "1" ] && [ "$nginx_support" = "1" ] && [ -e "$APILOCATION_PATH" ]; then
+			config_get clash_api_port "experimental" "clash_api_port" "9090"
+			[ "$(sed -En "s|^\s*proxy_pass\s+https?://[^:]+:(\d+).*|\1|p" "$APILOCATION_PATH")" = "$clash_api_port" ] || sed -Ei "/\bproxy_pass\b/{s|(proxy_pass\s+https?://[^:]+:)(\d+)(.*)|\1$clash_api_port\3|}" "$APILOCATION_PATH"
+			/etc/init.d/nginx reload
 		fi
 
 		# DNSMasq rules

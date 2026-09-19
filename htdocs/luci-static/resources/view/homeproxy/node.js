@@ -388,7 +388,7 @@ function parseShareLink(uri, features) {
 	return config;
 }
 
-function renderNodeSettings(section, data, features, main_node, routing_mode) {
+function renderNodeSettings(section, data, features, main_node, routing_mode, subs_info, proxy_nodes) {
 	let s = section, o;
 	s.rowcolors = true;
 	s.sortable = true;
@@ -443,16 +443,18 @@ function renderNodeSettings(section, data, features, main_node, routing_mode) {
 		o.value('wireguard', _('WireGuard'));
 	o.value('vless', _('VLESS'));
 	o.value('vmess', _('VMess'));
+	o.value('selector', _('Selector'));
+	o.value('urltest', _('URLTest'));
 	o.rmempty = false;
 
 	o = s.option(form.Value, 'address', _('Address'));
 	o.datatype = 'host';
-	o.depends({'type': 'direct', '!reverse': true});
+	o.depends({'type': /^(direct|selector|urltest)$/, '!reverse': true});
 	o.rmempty = false;
 
 	o = s.option(form.Value, 'port', _('Port'));
 	o.datatype = 'port';
-	o.depends({'type': 'direct', '!reverse': true});
+	o.depends({'type': /^(direct|selector|urltest)$/, '!reverse': true});
 	o.rmempty = false;
 
 	o = s.option(form.Value, 'username', _('Username'));
@@ -494,6 +496,18 @@ function renderNodeSettings(section, data, features, main_node, routing_mode) {
 	o.modalonly = true;
 
 	/* Direct config */
+	o = s.option(form.Value, 'override_address', _('Override address'),
+		_('Override the connection destination address.'));
+	o.datatype = 'host';
+	o.depends('type', 'direct');
+	o.modalonly = true;
+
+	o = s.option(form.Value, 'override_port', _('Override port'),
+		_('Override the connection destination port.'));
+	o.datatype = 'port';
+	o.depends('type', 'direct');
+	o.modalonly = true;
+
 	o = s.option(form.ListValue, 'proxy_protocol', _('Proxy protocol'),
 		_('Write proxy protocol in the connection header.'));
 	o.value('', _('Disable'));
@@ -768,6 +782,87 @@ function renderNodeSettings(section, data, features, main_node, routing_mode) {
 	o.depends('type', 'vmess');
 	o.modalonly = true;
 	/* VMess config end */
+
+	/* Selector config start */
+	o = s.option(form.MultiValue, 'group', _('Subscription Groups'),
+		_('List of subscription groups.'));
+	o.value('', _('-- Please choose --'));
+	for (let key in subs_info)
+		o.value(key, _('Sub (%s)').format(subs_info[key].name));
+	o.depends('type', 'selector');
+	o.depends('type', 'urltest');
+	o.modalonly = true;
+
+	o = s.option(form.MultiValue, 'order', _('Outbounds'),
+		_('List of outbound tags.'));
+	o.value('direct-out', _('Direct'));
+	o.value('block-out', _('Block'));
+	for (let key in proxy_nodes)
+		o.value(key, proxy_nodes[key]);
+	o.depends({'group': /^$/, 'type': /^(selector|urltest)$/});
+	o.modalonly = true;
+
+	o = s.option(form.ListValue, 'default_selected', _('Default Outbound'),
+		_('The default outbound tag. The first outbound will be used if empty.'));
+	o.value('', _('Default'));
+	o.value('direct-out', _('Direct'));
+	o.value('block-out', _('Block'));
+	for (let key in proxy_nodes)
+		o.value(key, proxy_nodes[key]);
+	o.default = '';
+	o.depends({'group': /^$/, 'type': 'selector'});
+	o.modalonly = true;
+
+	o = s.option(form.ListValue, 'filter_nodes', _('Filter nodes'),
+		_('Drop/keep specific nodes from outbounds.'));
+	o.value('', _('Disable'));
+	o.value('blacklist', _('Blacklist mode'));
+	o.value('whitelist', _('Whitelist mode'));
+	o.default = '';
+	o.depends('type', 'selector');
+	o.depends('type', 'urltest');
+	o.modalonly = true;
+
+	o = s.option(form.DynamicList, 'filter_keywords', _('Filter keywords'),
+		_('Drop/keep nodes that contain the specific keywords. <a target="_blank" href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_Expressions">Regex</a> is supported.'));
+	o.depends({'filter_nodes': '', '!reverse': true});
+	o.modalonly = true;
+	/* Selector config end */
+
+	/* URLTest config start */
+	o = s.option(form.Value, 'test_url', _('Test URL'),
+		_('The URL to test. https://www.gstatic.com/generate_204 will be used if empty.'));
+	o.value('', _('Default'));
+	o.default = 'http://cp.cloudflare.com/';
+	o.depends('type', 'urltest');
+	o.modalonly = true;
+
+	o = s.option(form.Value, 'interval', _('Interval'),
+		_('The test interval. <code>3m</code> will be used if empty.'));
+	o.value('', _('Default'));
+	o.default = '10m';
+	o.depends('type', 'urltest');
+	o.modalonly = true;
+
+	o = s.option(form.Value, 'tolerance', _('Tolerance'),
+		_('The test tolerance in milliseconds. 50 will be used if empty.'));
+	o.datatype = 'uinteger';
+	o.depends('type', 'urltest');
+	o.modalonly = true;
+
+	o = s.option(form.Value, 'idle_timeout', _('Idle timeout'),
+		_('The idle timeout. <code>30m</code> will be used if empty.'));
+	o.default = '30m';
+	o.depends('type', 'urltest');
+	o.modalonly = true;
+
+	o = s.option(form.Flag, 'interrupt_exist_connections', _('Interrupt existing connections'),
+		_('Interrupt existing connections when the selected outbound has changed.'));
+	o.default = o.disabled;
+	o.depends('type', 'selector');
+	o.depends('type', 'urltest');
+	o.modalonly = true;
+	/* URLTest config end */
 
 	/* Transport config start */
 	o = s.option(form.ListValue, 'transport', _('Transport'),
@@ -1208,6 +1303,14 @@ return view.extend({
 			subinfo.push({ 'hash': urlhash, 'title': title });
 		}
 
+		/* Cache all subscription info keyed by hash, they will be called multiple times */
+		let subs_info = {};
+		for (let info of subinfo)
+			subs_info[info.hash] = { 'name': info.title };
+
+		/* Cache all configured proxy nodes, they will be called multiple times */
+		let proxy_nodes = hp.loadNodesList(data[0], subs_info);
+
 		m = new form.Map('homeproxy', _('Edit nodes'));
 
 		s = m.section(form.NamedSection, 'subscription', 'homeproxy');
@@ -1216,7 +1319,7 @@ return view.extend({
 		/* User nodes start */
 		s.tab('node', _('Nodes'));
 		o = s.taboption('node', form.SectionValue, '_node', form.GridSection, 'node');
-		ss = renderNodeSettings(o.subsection, data, features, main_node, routing_mode);
+		ss = renderNodeSettings(o.subsection, data, features, main_node, routing_mode, subs_info, proxy_nodes);
 		ss.addremove = true;
 		ss.filter = function(section_id) {
 			for (let info of subinfo)
@@ -1321,7 +1424,7 @@ return view.extend({
 		for (const info of subinfo) {
 			s.tab('sub_' + info.hash, _('Sub (%s)').format(info.title));
 			o = s.taboption('sub_' + info.hash, form.SectionValue, '_sub_' + info.hash, form.GridSection, 'node');
-			ss = renderNodeSettings(o.subsection, data, features, main_node, routing_mode);
+			ss = renderNodeSettings(o.subsection, data, features, main_node, routing_mode, subs_info, proxy_nodes);
 			ss.filter = function(section_id) {
 				return (uci.get(data[0], section_id, 'grouphash') === info.hash);
 			}

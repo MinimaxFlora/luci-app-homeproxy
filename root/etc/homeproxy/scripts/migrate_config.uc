@@ -25,6 +25,7 @@ const uciinfra = 'infra',
       ucirouting = 'routing',
       uciroutingnode = 'routing_node',
       uciroutingrule = 'routing_rule',
+      uciexp = 'experimental',
       uciserver = 'server';
 
 /* chinadns-ng has been removed */
@@ -79,9 +80,13 @@ if (isEmpty(uci.get(uciconfig, uciserver, 'log_level')))
 if (uci.get(uciconfig, ucimain, 'routing_port') === 'all')
 	uci.delete(uciconfig, ucimain, 'routing_port');
 
-/* experimental section was removed */
-if (uci.get(uciconfig, 'experimental'))
-	uci.delete(uciconfig, 'experimental');
+/* create experimental section */
+if (!uci.get(uciconfig, uciexp))
+	uci.set(uciconfig, uciexp, uciconfig);
+
+/* clash_api_port was introduced */
+if (isEmpty(uci.get(uciconfig, uciexp, 'clash_api_port')))
+	uci.set(uciconfig, uciexp, 'clash_api_port', '9090');
 
 /* block-dns was removed from built-in dns servers */
 const default_dns_server = uci.get(uciconfig, ucidns, 'default_server');

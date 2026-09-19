@@ -11,6 +11,7 @@
 'require rpc';
 'require uci';
 'require ui';
+'require validation';
 
 return baseclass.extend({
 	dns_strategy: {
@@ -220,6 +221,34 @@ return baseclass.extend({
 	loadModalTitle(title, addtitle, uciconfig, ucisection) {
 		let label = uci.get(uciconfig, ucisection, 'label');
 		return label ? title + ' » ' + label : addtitle;
+	},
+
+	loadSubscriptionInfo(uciconfig) {
+		let subs = {};
+		for (let suburl of (uci.get(uciconfig, 'subscription', 'subscription_url') || [])) {
+			const url = new URL(suburl);
+			const urlhash = this.calcStringMD5(suburl.replace(/#.*$/, ''));
+			subs[urlhash] = {
+				url: suburl.replace(/#.*$/, ''),
+				name: url.hash ? decodeURIComponent(url.hash.slice(1)) : url.hostname
+			};
+		}
+		return subs;
+	},
+
+	loadNodesList(uciconfig, subinfo) {
+		let nodelist = {};
+		uci.sections(uciconfig, 'node', (res) => {
+			let nodeaddr = ((res.type === 'direct') ? res.override_address : res.address) || '',
+			    nodeport = ((res.type === 'direct') ? res.override_port : res.port) || '';
+
+			nodelist[res['.name']] =
+				String.format('%s [%s] %s', res.grouphash ?
+					String.format('[%s]', subinfo[res.grouphash]?.name || res.grouphash) : '',
+					res.type, res.label || ((validation.parseIPv6(nodeaddr) ?
+					String.format('[%s]', nodeaddr) : nodeaddr) + ':' + nodeport));
+		});
+		return nodelist;
 	},
 
 	renderSectionAdd(section, extra_class) {
